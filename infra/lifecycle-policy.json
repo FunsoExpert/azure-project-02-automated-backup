@@ -1,0 +1,21 @@
+{
+  "rules": [
+    {
+      "enabled": true,
+      "name": "old-versions-tier-and-delete",
+      "type": "Lifecycle",
+      "definition": {
+        "actions": {
+          "version": {
+            "tierToCool": { "daysAfterCreationGreaterThan": 30 },
+            "delete": { "daysAfterCreationGreaterThan": 90 }
+          }
+        },
+        "filters": {
+          "blobTypes": ["blockBlob"],
+          "prefixMatch": ["client-docs/"]
+        }
+      }
+    }
+  ]
+}

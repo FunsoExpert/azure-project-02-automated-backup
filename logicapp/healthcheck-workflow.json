@@ -34,22 +34,75 @@
             }
         },
         "actions": {
-            "HTTP": {
-                "runAfter": {},
-                "type": "Http",
-                "inputs": {
-                    "uri": "https://management.azure.com/subscriptions/c1ed7e99-3b89-43a6-933e-cf352be91887/resourceGroups/rg-backup-lab/providers/Microsoft.Storage/storageAccounts/stbackupsrc48213/blobServices/default?api-version=2023-05-01",
-                    "method": "GET",
-                    "authentication": {
-                        "type": "ManagedServiceIdentity",
-                        "audience": "https://management.azure.com"
+            "Checks": {
+                "actions": {
+                    "HTTP": {
+                        "type": "Http",
+                        "inputs": {
+                            "uri": "https://management.azure.com/subscriptions/c1ed7e99-3b89-43a6-933e-cf352be91887/resourceGroups/rg-backup-lab/providers/Microsoft.Storage/storageAccounts/stbackupsrc48213/blobServices/default?api-version=2023-05-01",
+                            "method": "GET",
+                            "authentication": {
+                                "type": "ManagedServiceIdentity",
+                                "audience": "https://management.azure.com"
+                            }
+                        },
+                        "runtimeConfiguration": {
+                            "contentTransfer": {
+                                "transferMode": "Chunked"
+                            }
+                        }
+                    },
+                    "Source_blobs": {
+                        "runAfter": {
+                            "HTTP": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "Http",
+                        "inputs": {
+                            "uri": "https://stbackupsrc48213.blob.core.windows.net/client-docs?restype=container&comp=list",
+                            "method": "GET",
+                            "headers": {
+                                "x-ms-version": "2021-08-06"
+                            },
+                            "authentication": {
+                                "type": "ManagedServiceIdentity",
+                                "audience": "https://storage.azure.com"
+                            }
+                        },
+                        "runtimeConfiguration": {
+                            "contentTransfer": {
+                                "transferMode": "Chunked"
+                            }
+                        }
+                    },
+                    "Replica_blobs": {
+                        "runAfter": {
+                            "Source_blobs": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "Http",
+                        "inputs": {
+                            "uri": "https://stbackuprep482131.blob.core.windows.net/client-docs?restype=container&comp=list",
+                            "method": "GET",
+                            "headers": {
+                                "x-ms-version": "2021-08-06"
+                            },
+                            "authentication": {
+                                "type": "ManagedServiceIdentity",
+                                "audience": "https://storage.azure.com"
+                            }
+                        },
+                        "runtimeConfiguration": {
+                            "contentTransfer": {
+                                "transferMode": "Chunked"
+                            }
+                        }
                     }
                 },
-                "runtimeConfiguration": {
-                    "contentTransfer": {
-                        "transferMode": "Chunked"
-                    }
-                }
+                "runAfter": {},
+                "type": "Scope"
             },
             "Condition": {
                 "actions": {
@@ -65,7 +118,7 @@
                             "body": {
                                 "To": "funso.aringbangba@outlook.com",
                                 "Subject": "✅ Backup healthy: stbackupsrc48213",
-                                "Body": "<p class=\"editor-paragraph\">Versioning, soft delete and point-in-time restore are all enabled on stbackupsrc48213</p>",
+                                "Body": "<p>All checks passed on stbackupsrc48213.</p><p>Versioning: @{body('HTTP')?['properties']?['isVersioningEnabled']}<br>Blob soft delete: @{body('HTTP')?['properties']?['deleteRetentionPolicy']?['enabled']}<br>Point-in-time restore: @{body('HTTP')?['properties']?['restorePolicy']?['enabled']}<br>Blobs in source: @{sub(length(split(string(body('Source_blobs')), '<Blob>')), 1)}<br>Blobs in replica: @{sub(length(split(string(body('Replica_blobs')), '<Blob>')), 1)}</p>",
                                 "Importance": "Normal"
                             },
                             "path": "/v2/Mail"
@@ -73,7 +126,7 @@
                     }
                 },
                 "runAfter": {
-                    "HTTP": [
+                    "Checks": [
                         "Succeeded"
                     ]
                 },
@@ -91,7 +144,7 @@
                                 "body": {
                                     "To": "funso.aringbangba@outlook.com",
                                     "Subject": "❌ BACKUP ALERT: stbackupsrc48213 protection check failed",
-                                    "Body": "<p class=\"editor-paragraph\">One or more protection settings are off. Check versioning, soft delete and point-in-time restore on stbackupsrc48213 now.</p>",
+                                    "Body": "<p>One or more checks failed on stbackupsrc48213. Investigate now.</p><p>Versioning: @{body('HTTP')?['properties']?['isVersioningEnabled']}<br>Blob soft delete: @{body('HTTP')?['properties']?['deleteRetentionPolicy']?['enabled']}<br>Point-in-time restore: @{body('HTTP')?['properties']?['restorePolicy']?['enabled']}<br>Blobs in source: @{sub(length(split(string(body('Source_blobs')), '<Blob>')), 1)}<br>Blobs in replica: @{sub(length(split(string(body('Replica_blobs')), '<Blob>')), 1)}</p>",
                                     "Importance": "Normal"
                                 },
                                 "path": "/v2/Mail"
@@ -118,10 +171,40 @@
                                 "@body('HTTP')?['properties']?['restorePolicy']?['enabled']",
                                 true
                             ]
+                        },
+                        {
+                            "equals": [
+                                "@sub(length(split(string(body('Source_blobs')), '<Blob>')), 1)",
+                                "@sub(length(split(string(body('Replica_blobs')), '<Blob>')), 1)"
+                            ]
                         }
                     ]
                 },
                 "type": "If"
+            },
+            "Send_check_did_not_run_email": {
+                "runAfter": {
+                    "Checks": [
+                        "Failed",
+                        "TimedOut"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['outlook']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": {
+                        "To": "funso.aringbangba@outlook.com",
+                        "Subject": "⚠️ BACKUP CHECK DID NOT RUN: stbackupsrc48213",
+                        "Body": "<p>The daily health check could not complete. Backup status is unknown. Open la-backup-healthcheck, then Run history, and read the failed step.</p>",
+                        "Importance": "High"
+                    },
+                    "path": "/v2/Mail"
+                }
             }
         },
         "outputs": {},

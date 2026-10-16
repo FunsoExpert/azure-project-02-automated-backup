@@ -1,0 +1,148 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "Recurrence": {
+                "recurrence": {
+                    "interval": 1,
+                    "frequency": "Day",
+                    "timeZone": "GMT Standard Time",
+                    "schedule": {
+                        "hours": [
+                            7
+                        ],
+                        "minutes": [
+                            0
+                        ]
+                    }
+                },
+                "evaluatedRecurrence": {
+                    "interval": 1,
+                    "frequency": "Day",
+                    "timeZone": "GMT Standard Time",
+                    "schedule": {
+                        "hours": [
+                            7
+                        ],
+                        "minutes": [
+                            0
+                        ]
+                    }
+                },
+                "type": "Recurrence"
+            }
+        },
+        "actions": {
+            "HTTP": {
+                "runAfter": {},
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://management.azure.com/subscriptions/c1ed7e99-3b89-43a6-933e-cf352be91887/resourceGroups/rg-backup-lab/providers/Microsoft.Storage/storageAccounts/stbackupsrc48213/blobServices/default?api-version=2023-05-01",
+                    "method": "GET",
+                    "authentication": {
+                        "type": "ManagedServiceIdentity",
+                        "audience": "https://management.azure.com"
+                    }
+                },
+                "runtimeConfiguration": {
+                    "contentTransfer": {
+                        "transferMode": "Chunked"
+                    }
+                }
+            },
+            "Condition": {
+                "actions": {
+                    "Send_an_email_(V2)": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['outlook']['connectionId']"
+                                }
+                            },
+                            "method": "post",
+                            "body": {
+                                "To": "funso.aringbangba@outlook.com",
+                                "Subject": "✅ Backup healthy: stbackupsrc48213",
+                                "Body": "<p class=\"editor-paragraph\">Versioning, soft delete and point-in-time restore are all enabled on stbackupsrc48213</p>",
+                                "Importance": "Normal"
+                            },
+                            "path": "/v2/Mail"
+                        }
+                    }
+                },
+                "runAfter": {
+                    "HTTP": [
+                        "Succeeded"
+                    ]
+                },
+                "else": {
+                    "actions": {
+                        "Send_an_email_(V2)_1": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['outlook']['connectionId']"
+                                    }
+                                },
+                                "method": "post",
+                                "body": {
+                                    "To": "funso.aringbangba@outlook.com",
+                                    "Subject": "❌ BACKUP ALERT: stbackupsrc48213 protection check failed",
+                                    "Body": "<p class=\"editor-paragraph\">One or more protection settings are off. Check versioning, soft delete and point-in-time restore on stbackupsrc48213 now.</p>",
+                                    "Importance": "Normal"
+                                },
+                                "path": "/v2/Mail"
+                            }
+                        }
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "equals": [
+                                "@body('HTTP')?['properties']?['isVersioningEnabled']",
+                                true
+                            ]
+                        },
+                        {
+                            "equals": [
+                                "@body('HTTP')?['properties']?['deleteRetentionPolicy']?['enabled']",
+                                true
+                            ]
+                        },
+                        {
+                            "equals": [
+                                "@body('HTTP')?['properties']?['restorePolicy']?['enabled']",
+                                true
+                            ]
+                        }
+                    ]
+                },
+                "type": "If"
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "outlook": {
+                    "id": "/subscriptions/c1ed7e99-3b89-43a6-933e-cf352be91887/providers/Microsoft.Web/locations/francecentral/managedApis/outlook",
+                    "connectionId": "/subscriptions/c1ed7e99-3b89-43a6-933e-cf352be91887/resourceGroups/rg-backup-lab/providers/Microsoft.Web/connections/outlook",
+                    "connectionName": "outlook",
+                    "connectionProperties": {}
+                }
+            }
+        }
+    }
+}

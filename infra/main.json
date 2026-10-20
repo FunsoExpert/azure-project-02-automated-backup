@@ -1,0 +1,420 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.44.1.10279",
+      "templateHash": "2386291091201176923"
+    }
+  },
+  "parameters": {
+    "sourceLocation": {
+      "type": "string",
+      "defaultValue": "francecentral"
+    },
+    "replicaLocation": {
+      "type": "string",
+      "defaultValue": "swedencentral"
+    },
+    "suffix": {
+      "type": "string",
+      "defaultValue": "[uniqueString(resourceGroup().id)]",
+      "metadata": {
+        "description": "Makes the account names globally unique"
+      }
+    },
+    "enableLocks": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Set false to allow deleting the resource group during teardown"
+      }
+    }
+  },
+  "variables": {
+    "sourceName": "[format('stbackupsrc{0}', parameters('suffix'))]",
+    "replicaName": "[format('stbackuprep{0}', parameters('suffix'))]",
+    "containerName": "client-docs",
+    "tags": {
+      "app": "backup-system",
+      "costcenter": "portfolio",
+      "env": "lab"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts/managementPolicies",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('sourceName'), 'default')]",
+      "properties": {
+        "policy": {
+          "rules": [
+            {
+              "enabled": true,
+              "name": "old-versions-tier-and-delete",
+              "type": "Lifecycle",
+              "definition": {
+                "actions": {
+                  "version": {
+                    "tierToCool": {
+                      "daysAfterCreationGreaterThan": 30
+                    },
+                    "delete": {
+                      "daysAfterCreationGreaterThan": 90
+                    }
+                  }
+                },
+                "filters": {
+                  "blobTypes": [
+                    "blockBlob"
+                  ],
+                  "prefixMatch": [
+                    "[format('{0}/', variables('containerName'))]"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'source-storage')]"
+      ]
+    },
+    {
+      "condition": "[parameters('enableLocks')]",
+      "type": "Microsoft.Authorization/locks",
+      "apiVersion": "2020-05-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('sourceName'))]",
+      "name": "lock-no-delete",
+      "properties": {
+        "level": "CanNotDelete",
+        "notes": "Protects backup data from accidental account deletion"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/managementPolicies', variables('sourceName'), 'default')]"
+      ]
+    },
+    {
+      "condition": "[parameters('enableLocks')]",
+      "type": "Microsoft.Authorization/locks",
+      "apiVersion": "2020-05-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('replicaName'))]",
+      "name": "lock-no-delete",
+      "properties": {
+        "level": "CanNotDelete",
+        "notes": "Protects backup data from accidental account deletion"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'replica-storage')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "source-storage",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('sourceName')]"
+          },
+          "location": {
+            "value": "[parameters('sourceLocation')]"
+          },
+          "accessTier": {
+            "value": "Hot"
+          },
+          "enablePitr": {
+            "value": true
+          },
+          "enableChangeFeed": {
+            "value": true
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.44.1.10279",
+              "templateHash": "4977999955113301120"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage account name: 3-24 lowercase letters and numbers"
+              }
+            },
+            "location": {
+              "type": "string"
+            },
+            "accessTier": {
+              "type": "string",
+              "defaultValue": "Hot",
+              "allowedValues": [
+                "Hot",
+                "Cool"
+              ]
+            },
+            "enablePitr": {
+              "type": "bool",
+              "defaultValue": false
+            },
+            "pitrDays": {
+              "type": "int",
+              "defaultValue": 6
+            },
+            "enableChangeFeed": {
+              "type": "bool",
+              "defaultValue": false
+            },
+            "softDeleteDays": {
+              "type": "int",
+              "defaultValue": 7
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "kind": "StorageV2",
+              "properties": {
+                "accessTier": "[parameters('accessTier')]",
+                "isHnsEnabled": false,
+                "minimumTlsVersion": "TLS1_2",
+                "supportsHttpsTrafficOnly": true,
+                "allowBlobPublicAccess": false,
+                "allowSharedKeyAccess": false,
+                "defaultToOAuthAuthentication": true,
+                "allowCrossTenantReplication": false
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', parameters('name'), 'default')]",
+              "properties": {
+                "isVersioningEnabled": true,
+                "changeFeed": {
+                  "enabled": "[parameters('enableChangeFeed')]"
+                },
+                "deleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": "[parameters('softDeleteDays')]"
+                },
+                "containerDeleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": "[parameters('softDeleteDays')]"
+                },
+                "restorePolicy": {
+                  "enabled": "[parameters('enablePitr')]",
+                  "days": "[if(parameters('enablePitr'), parameters('pitrDays'), null())]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', parameters('name'), 'default', 'client-docs')]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('name'), 'default')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "replica-storage",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('replicaName')]"
+          },
+          "location": {
+            "value": "[parameters('replicaLocation')]"
+          },
+          "accessTier": {
+            "value": "Cool"
+          },
+          "enablePitr": {
+            "value": false
+          },
+          "enableChangeFeed": {
+            "value": false
+          },
+          "tags": {
+            "value": "[union(variables('tags'), createObject('role', 'replica'))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.44.1.10279",
+              "templateHash": "4977999955113301120"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage account name: 3-24 lowercase letters and numbers"
+              }
+            },
+            "location": {
+              "type": "string"
+            },
+            "accessTier": {
+              "type": "string",
+              "defaultValue": "Hot",
+              "allowedValues": [
+                "Hot",
+                "Cool"
+              ]
+            },
+            "enablePitr": {
+              "type": "bool",
+              "defaultValue": false
+            },
+            "pitrDays": {
+              "type": "int",
+              "defaultValue": 6
+            },
+            "enableChangeFeed": {
+              "type": "bool",
+              "defaultValue": false
+            },
+            "softDeleteDays": {
+              "type": "int",
+              "defaultValue": 7
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "kind": "StorageV2",
+              "properties": {
+                "accessTier": "[parameters('accessTier')]",
+                "isHnsEnabled": false,
+                "minimumTlsVersion": "TLS1_2",
+                "supportsHttpsTrafficOnly": true,
+                "allowBlobPublicAccess": false,
+                "allowSharedKeyAccess": false,
+                "defaultToOAuthAuthentication": true,
+                "allowCrossTenantReplication": false
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', parameters('name'), 'default')]",
+              "properties": {
+                "isVersioningEnabled": true,
+                "changeFeed": {
+                  "enabled": "[parameters('enableChangeFeed')]"
+                },
+                "deleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": "[parameters('softDeleteDays')]"
+                },
+                "containerDeleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": "[parameters('softDeleteDays')]"
+                },
+                "restorePolicy": {
+                  "enabled": "[parameters('enablePitr')]",
+                  "days": "[if(parameters('enablePitr'), parameters('pitrDays'), null())]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', parameters('name'), 'default', 'client-docs')]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('name'), 'default')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "sourceName": {
+      "type": "string",
+      "value": "[variables('sourceName')]"
+    },
+    "replicaName": {
+      "type": "string",
+      "value": "[variables('replicaName')]"
+    }
+  }
+}

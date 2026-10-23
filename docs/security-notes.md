@@ -32,7 +32,7 @@ Last updated: 17 Oct 2026
 
 | Principal | Source account | Replica account |
 |---|---|---|
-| `la-backup-healthcheck` (system-assigned managed identity) | Reader, Storage Blob Data Reader | Reader, Storage Blob Data Reader |
+| `la-backup-healthcheck` (system-assigned managed identity) | Reader, Storage Blob Data Reader | Storage Blob Data Reader |
 | Project owner (user) | Storage Blob Data Contributor | Storage Blob Data Reader |
 
 Notes:
@@ -58,7 +58,7 @@ Notes:
 1. **No storage firewall.** A Consumption Logic App calls out from a large shared pool of regional IP addresses, so an IP allow-list would be fragile and unreliable. Compensating controls: Entra-only authentication, no anonymous access, least-privilege RBAC. Future work: a private endpoint with a Logic App Standard plan and VNet integration.
 2. **Delete lock protects against accidents, not privileged users.** Anyone with Owner can remove the lock. Future work: immutable (WORM) storage on the replica.
 3. **Replication is asynchronous.** The RPO is minutes, not zero. A health check run during a replication delay could raise a false alert, because it compares blob counts.
-4. **Replica deletion behaviour.** How deletions on the source propagate to the replica will be confirmed in the recovery drills.
+4. **Deletes on the source.** I haven't tested what a deletion on the source does to the replica.
 5. **Email uses a personal Outlook.com connection.** It authenticates as a user, not a managed identity. Production alternative: an Azure Monitor action group.
 6. **No alert if the Logic App itself stops running.** A missing-run alert is a stretch goal.
 7. **Backup scope.** This covers blob data only. VMs and databases are out of scope (that's Azure Backup).

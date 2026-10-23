@@ -1,0 +1,134 @@
+{
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "$connections": { "type": "Object", "defaultValue": {} },
+        "subscriptionId": { "type": "String" },
+        "resourceGroupName": { "type": "String" },
+        "sourceAccount": { "type": "String" },
+        "replicaAccount": { "type": "String" },
+        "alertEmail": { "type": "String" }
+    },
+    "triggers": {
+        "Recurrence": {
+            "recurrence": {
+                "interval": 1,
+                "frequency": "Day",
+                "timeZone": "GMT Standard Time",
+                "schedule": { "hours": [ 7 ], "minutes": [ 0 ] }
+            },
+            "type": "Recurrence"
+        }
+    },
+    "actions": {
+        "Checks": {
+            "actions": {
+                "HTTP": {
+                    "runAfter": {},
+                    "type": "Http",
+                    "inputs": {
+                        "uri": "@concat('https://management.azure.com/subscriptions/', parameters('subscriptionId'), '/resourceGroups/', parameters('resourceGroupName'), '/providers/Microsoft.Storage/storageAccounts/', parameters('sourceAccount'), '/blobServices/default?api-version=2023-05-01')",
+                        "method": "GET",
+                        "authentication": {
+                            "type": "ManagedServiceIdentity",
+                            "audience": "https://management.azure.com"
+                        }
+                    },
+                    "runtimeConfiguration": { "contentTransfer": { "transferMode": "Chunked" } }
+                },
+                "Source_blobs": {
+                    "runAfter": { "HTTP": [ "Succeeded" ] },
+                    "type": "Http",
+                    "inputs": {
+                        "uri": "@concat('https://', parameters('sourceAccount'), '.blob.core.windows.net/client-docs?restype=container&comp=list')",
+                        "method": "GET",
+                        "headers": { "x-ms-version": "2021-08-06" },
+                        "authentication": {
+                            "type": "ManagedServiceIdentity",
+                            "audience": "https://storage.azure.com"
+                        }
+                    },
+                    "runtimeConfiguration": { "contentTransfer": { "transferMode": "Chunked" } }
+                },
+                "Replica_blobs": {
+                    "runAfter": { "Source_blobs": [ "Succeeded" ] },
+                    "type": "Http",
+                    "inputs": {
+                        "uri": "@concat('https://', parameters('replicaAccount'), '.blob.core.windows.net/client-docs?restype=container&comp=list')",
+                        "method": "GET",
+                        "headers": { "x-ms-version": "2021-08-06" },
+                        "authentication": {
+                            "type": "ManagedServiceIdentity",
+                            "audience": "https://storage.azure.com"
+                        }
+                    },
+                    "runtimeConfiguration": { "contentTransfer": { "transferMode": "Chunked" } }
+                }
+            },
+            "runAfter": {},
+            "type": "Scope"
+        },
+        "Condition": {
+            "actions": {
+                "Send_healthy_email": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                        "host": { "connection": { "name": "@parameters('$connections')['outlook']['connectionId']" } },
+                        "method": "post",
+                        "body": {
+                            "To": "@parameters('alertEmail')",
+                            "Subject": "@concat('✅ Backup healthy: ', parameters('sourceAccount'))",
+                            "Body": "<p>All checks passed on @{parameters('sourceAccount')}.</p><p>Versioning: @{body('HTTP')?['properties']?['isVersioningEnabled']}<br>Blob soft delete: @{body('HTTP')?['properties']?['deleteRetentionPolicy']?['enabled']}<br>Point-in-time restore: @{body('HTTP')?['properties']?['restorePolicy']?['enabled']}<br>Blobs in source: @{sub(length(split(string(body('Source_blobs')), '<Blob>')), 1)}<br>Blobs in replica: @{sub(length(split(string(body('Replica_blobs')), '<Blob>')), 1)}</p>",
+                            "Importance": "Normal"
+                        },
+                        "path": "/v2/Mail"
+                    }
+                }
+            },
+            "runAfter": { "Checks": [ "Succeeded" ] },
+            "else": {
+                "actions": {
+                    "Send_alert_email": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                            "host": { "connection": { "name": "@parameters('$connections')['outlook']['connectionId']" } },
+                            "method": "post",
+                            "body": {
+                                "To": "@parameters('alertEmail')",
+                                "Subject": "@concat('❌ BACKUP ALERT: ', parameters('sourceAccount'), ' protection check failed')",
+                                "Body": "<p>One or more checks failed on @{parameters('sourceAccount')}. Investigate now.</p><p>Versioning: @{body('HTTP')?['properties']?['isVersioningEnabled']}<br>Blob soft delete: @{body('HTTP')?['properties']?['deleteRetentionPolicy']?['enabled']}<br>Point-in-time restore: @{body('HTTP')?['properties']?['restorePolicy']?['enabled']}<br>Blobs in source: @{sub(length(split(string(body('Source_blobs')), '<Blob>')), 1)}<br>Blobs in replica: @{sub(length(split(string(body('Replica_blobs')), '<Blob>')), 1)}</p>",
+                                "Importance": "Normal"
+                            },
+                            "path": "/v2/Mail"
+                        }
+                    }
+                }
+            },
+            "expression": {
+                "and": [
+                    { "equals": [ "@body('HTTP')?['properties']?['isVersioningEnabled']", true ] },
+                    { "equals": [ "@body('HTTP')?['properties']?['deleteRetentionPolicy']?['enabled']", true ] },
+                    { "equals": [ "@body('HTTP')?['properties']?['restorePolicy']?['enabled']", true ] },
+                    { "equals": [ "@sub(length(split(string(body('Source_blobs')), '<Blob>')), 1)", "@sub(length(split(string(body('Replica_blobs')), '<Blob>')), 1)" ] }
+                ]
+            },
+            "type": "If"
+        },
+        "Send_check_did_not_run_email": {
+            "type": "ApiConnection",
+            "inputs": {
+                "host": { "connection": { "name": "@parameters('$connections')['outlook']['connectionId']" } },
+                "method": "post",
+                "body": {
+                    "To": "@parameters('alertEmail')",
+                    "Subject": "@concat('⚠️ BACKUP CHECK DID NOT RUN: ', parameters('sourceAccount'))",
+                    "Body": "<p>The daily health check could not complete. Backup status is unknown. Open la-backup-healthcheck, then Run history, and read the failed step.</p>",
+                    "Importance": "High"
+                },
+                "path": "/v2/Mail"
+            },
+            "runAfter": { "Checks": [ "Failed", "TimedOut" ] }
+        }
+    },
+    "outputs": {}
+}

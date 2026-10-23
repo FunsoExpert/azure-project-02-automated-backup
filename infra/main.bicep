@@ -2,6 +2,8 @@ targetScope = 'resourceGroup'
 
 param sourceLocation string = 'francecentral'
 param replicaLocation string = 'swedencentral'
+@description('Where the daily health-check emails are sent')
+param alertEmail string
 
 @description('Makes the account names globally unique')
 param suffix string = uniqueString(resourceGroup().id)
@@ -41,6 +43,21 @@ module replica 'modules/storage.bicep' = {
     enableChangeFeed: false
     tags: union(tags, { role: 'replica' })
   }
+}
+
+module healthcheck 'modules/healthcheck.bicep' = {
+  name: 'healthcheck'
+  params: {
+    location: sourceLocation
+    sourceName: sourceName
+    replicaName: replicaName
+    alertEmail: alertEmail
+    tags: tags
+  }
+  dependsOn: [
+    source
+    replica
+  ]
 }
 
 resource sourceAcct 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
